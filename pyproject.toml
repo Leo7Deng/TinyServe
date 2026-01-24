@@ -1,0 +1,12 @@
+[build-system]
+requires = ["pybind11", "scikit-build-core", "cmake", "ninja"]
+build-backend = "scikit_build_core.build"
+
+[project]
+name = "tinyserve"
+version = "0.1.0"
+requires-python = ">=3.10"
+
+[tool.scikit-build]
+cmake.verbose = true
+logging.level = "INFO"

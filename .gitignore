@@ -205,3 +205,8 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# System and Tools
+CMakeUserPresets.json
+compile_commands.json
+.DS_Store
