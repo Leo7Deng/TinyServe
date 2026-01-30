@@ -1,6 +1,8 @@
 #include <pybind11/pybind11.h>
 #include <pybind11/numpy.h>
+#include <pybind11/stl.h>
 #include <cuda_runtime.h>
+#include <memory.h>
 
 namespace py = pybind11;
 
@@ -63,8 +65,17 @@ py::array_t<float> matrix_mult(py::array_t<float> A, py::array_t<float> B) {
 }
 
 
+PYBIND11_MODULE(tinyserve_ext, m) {
+    m.doc() = "TinyServe Low-Level Bindings";
 
+    // Bind function
+    m.def("matrix_mult", &matrix_mult, "A function that multiplies matricies");
 
-PYBIND11_MODULE(tinyserve_ext, m, py::mod_gil_not_used()) {
-    m.def("matrix_mult", &matrix_mult, "A function that adds two numbers");
+    // Bind the class
+    py::class_<BlockAllocator>(m, "BlockAllocator")
+        .def(py::init<int, int>(), py::arg("total_blocks"), py::arg("block_size"))
+        .def("allocate", &BlockAllocator::allocate)
+        .def("free", &BlockAllocator::free)
+        .def("get_free_block_count", &BlockAllocator::get_free_block_count)
+        .def("get_block_size", &BlockAllocator::get_block_size);
 }

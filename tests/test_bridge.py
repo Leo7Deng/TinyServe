@@ -12,7 +12,7 @@ def matrix_mult(A, B):
                 
     
 def main():
-    N = 100
+    N = 200
 
     # Create arrays of size NxN
     A = np.random.rand(N, N).astype(np.float32)
