@@ -40,3 +40,19 @@ Pass: Kernel output matched PyTorch reference!
 Sample Kernel (User 0, Head 0): [0.28064659237861633, 0.09345307946205139, -0.1507822871208191]
 Sample Ref    (User 0, Head 0): [0.28064659237861633, 0.093453049659729, -0.1507822722196579]
 ```
+
+test_benchmark is used to test the latency of my attention kernel vs standard PyTorch. We expect PyTorch to be faster because with my attention kernel using PagedAttention, the GPU needs to query for where the next block is from the block table, as opposed to linearly allocated data in PyTorch where the GPU can "predict" where the next piece of data will be. test_benchmark is purely a test of latency, where I want to reduce the latency to be as close to PyTorch as possible. PagedAttention will perform better when the amount of requests increase to where standard PyTorch will run into "out of memory" errors, and PagedAttention will not.
+```
+python tests/test_benchmark.py 
+Config: Batch=50, Context=1000-1500, Heads=32
+Max Blocks Needed: 5724
+VRAM Used for KV Cache: 0.75 GB
+Allocating and scattering blocks randomly.
+Sequence Lengths (Sample): [1477, 1308, 1242, 1091, 1424]
+Fragmentation: User 0's first 5 blocks are at: [3143, 4200, 1683, 1207, 4580]
+Running 100 iterations for average latency
+Average Latency: 12.982 ms
+Memory Bandwidth: 79.19 GB/s
+PyTorch Latency: 1.034 ms
+Slowdown Factor: 12.6x slower than PyTorch
+```

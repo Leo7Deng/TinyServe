@@ -54,16 +54,17 @@ def test_attention():
     max_blocks_per_seq = 10
     block_tables = torch.full((num_seqs, max_blocks_per_seq), -1, device=device, dtype=torch.int32)
     
-    # scatter the data into the cache
-    free_block_idx = 0
+    # scatter the data into the cache into random physical blocks
+    pool_idx = 0
+    physical_blocks_pool = torch.randperm(max_num_blocks)
     for seq_idx, (k_seq, v_seq) in enumerate(zip(true_keys, true_values)):
         seq_len = k_seq.shape[0]
         num_blocks_needed = (seq_len + block_size - 1) // block_size
         
         for logical_idx in range(num_blocks_needed):
             # assign a physical block
-            physical_block = free_block_idx
-            free_block_idx += 1
+            physical_block = physical_blocks_pool[free_block_idx]
+            pool_idx += 1
             
             # write to block table
             block_tables[seq_idx, logical_idx] = physical_block
