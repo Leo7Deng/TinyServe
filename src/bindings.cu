@@ -3,6 +3,7 @@
 #include <pybind11/stl.h>
 #include <cuda_runtime.h>
 #include <memory.h>
+#include "kernels/attention.h"
 
 namespace py = pybind11;
 
@@ -78,4 +79,6 @@ PYBIND11_MODULE(tinyserve_ext, m) {
         .def("free", &BlockAllocator::free)
         .def("get_free_block_count", &BlockAllocator::get_free_block_count)
         .def("get_block_size", &BlockAllocator::get_block_size);
+
+    m.def("paged_attention_v1", &launch_paged_attention_v1);
 }

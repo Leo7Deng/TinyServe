@@ -23,3 +23,20 @@ Free Blocks: 6
 Allocating sequence E (needs 5 blocks)
 User E successfully allocated blocks: [5, 4, 1, 0, 8]
 ```
+
+For the Paged Attention Kernel, I will need to write a CUDA kernel that computes the attention mechanism:
+```
+Output = Softmax(Q * K^T) * V
+```
+In standard PyTorch, K and V are continuous rectangles in memory. When context scales up, K and V sizes increase linearly, and takes up more and more memory. In TinyServe, K and V will be broken down into tiny blocks of memory scattered randomly across the GPU.
+This kernel is essentially acting like a Memory Management Unit (MMU). For example, on token 50, it must calculate token 50 is on page 50//16 = 3. Page 3 maps to physical block 99. Read the data at block 99 with offset 2.
+
+```
+python tests/test_attention.py 
+Config: 2 Seqs, 32 Heads, Block Size 16
+Running Paged Attention Kernel
+Running Reference PyTorch Attention
+Pass: Kernel output matched PyTorch reference!
+Sample Kernel (User 0, Head 0): [0.28064659237861633, 0.09345307946205139, -0.1507822871208191]
+Sample Ref    (User 0, Head 0): [0.28064659237861633, 0.093453049659729, -0.1507822722196579]
+```
