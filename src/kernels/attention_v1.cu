@@ -5,7 +5,7 @@
 
 #define MAX_HEAD_DIM 64     // mirrors head_dim
 
-__global__ void paged_attention_kernel(
+__global__ void paged_attention_kernel_v1(
     // __restrict__
     float* out,                 // output tensor
     const float* q,             // query tensor (not a bottleneck in inference because only need q of most recent token)
@@ -127,7 +127,7 @@ void launch_paged_attention_v1(
     // one thread per block for now
     dim3 block(1);
 
-    paged_attention_kernel<<<grid, block>>>(
+    paged_attention_kernel_v1<<<grid, block>>>(
         out, q, k, v, table, lens, 
         max_num_blocks, block_size, head_dim, num_heads
     );

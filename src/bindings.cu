@@ -81,4 +81,5 @@ PYBIND11_MODULE(tinyserve_ext, m) {
         .def("get_block_size", &BlockAllocator::get_block_size);
 
     m.def("paged_attention_v1", &launch_paged_attention_v1);
+    m.def("paged_attention_v2", &launch_paged_attention_v2);
 }

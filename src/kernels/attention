@@ -1,0 +1,185 @@
+#include <cuda_runtime.h>
+#include <cmath>
+#include <float.h>
+#include "attention.h"
+
+#define MAX_HEAD_DIM 64         // mirrors head_dim
+#define THREADS_PER_BLOCK 128   // mirrors blockDim.x
+
+__global__ void paged_attention_kernel_v2(
+    // __restrict__
+    float* out,                 // output tensor
+    const float* q,             // query tensor (not a bottleneck in inference because only need q of most recent token)
+    const float* k_cache,       // key cache (can be very large), shape: [num_blocks, block_size, num_heads, head_dim]
+    const float* v_cache,       // value cache (mirrors keys)
+    const int* block_tables,    // maps [seq, block_idx] -> physical_block
+    const int* context_lens,    // length of each sequence
+    int max_num_blocks,         // block_idx dimension of block_tables
+    int block_size,             // 16
+    int head_dim,               // 64
+    int num_heads               // 32
+) {
+    // Launch grid as (num_heads, num_seqs)
+    // blockIdx.x handles each head
+    // blockIdx.y handles each sequence (think each user/prompt)
+    // Later we will use threadIdx which works together to calculate for this one sequence's head
+    int head_idx = blockIdx.x;
+    int seq_idx = blockIdx.y;
+
+    int tid = threadIdx.x;
+
+    // Declare shared memory for threads to compare max and sum for softmax
+    __shared__ float max_buffer[THREADS_PER_BLOCK];
+    __shared__ float sum_buffer[THREADS_PER_BLOCK];
+
+    // Q tensor shape is [num_seqs, num_heads, head_dim]
+    // This offset is the start for this specific attention head
+    int q_offset = (seq_idx * num_heads * head_dim) + (head_idx * head_dim);
+
+    // accumulators for softmax
+    float max_score = -FLT_MAX;
+    float sum_exp = 0.0f;
+
+    // standard attention scaling
+    float scale = 1.0f / sqrtf((float)head_dim);
+    
+    int num_tokens = context_lens[seq_idx];
+
+    // Calculate scores Q*K to see which keys have high correlation to the query
+    // first loop to find max_score
+    for (int i = tid; i < num_tokens; i += blockDim.x) {
+        // get which physical block to look at
+        int block_idx = i / block_size;
+        int physical_block = block_tables[seq_idx * max_num_blocks + block_idx];
+        
+        // k_cache is in the shape [num_blocks, block_size, num_heads, head_dim]
+        int block_offset = i % block_size;
+        long long k_offset = (long long)physical_block * block_size * num_heads * head_dim
+                        + (long long)block_offset * num_heads * head_dim
+                        + (long long)head_idx * head_dim;
+
+        // compute dot product
+        float dot = 0.0f;
+        for (int d = 0; d < head_dim; d++) {
+            dot += q[q_offset + d] * k_cache[k_offset + d];
+        }
+
+        // used for softmax stability
+        dot *= scale;
+        if (dot > max_score) {
+            max_score = dot;
+        }
+    }
+    // write thread's max score to shared buffer
+    max_buffer[tid] = max_score;
+    __syncthreads();
+
+    // Now that we have the max scores from all threads, use thread 0 to find the actual single max
+    __shared__ float global_max_score;
+    if (tid == 0) {
+        float max_val = -FLT_MAX;
+        for (int i = 0; i < blockDim.x; i++) {
+            if (max_buffer[i] > max_val) {
+                max_val = max_buffer[i];
+            }
+        }
+        global_max_score = max_val;
+    }
+    __syncthreads();
+
+    // same loop but softmax and accumulate V
+    float out_accumulator[MAX_HEAD_DIM];
+    for (int d=0; d<head_dim; d++) out_accumulator[d] = 0.0f;
+
+    for (int i = tid; i < num_tokens; i += blockDim.x) {
+        int block_idx = i / block_size;
+        int physical_block = block_tables[seq_idx * max_num_blocks + block_idx];
+        int block_offset = i % block_size;
+        long long k_offset = (long long)physical_block * block_size * num_heads * head_dim
+                        + (long long)block_offset * num_heads * head_dim
+                        + (long long)head_idx * head_dim;
+        float dot = 0.0f;
+        for (int d = 0; d < head_dim; d++) {
+            dot += q[q_offset + d] * k_cache[k_offset + d];
+        }
+        dot *= scale;
+
+        // softmax and calculate prob
+        float prob = expf(dot - global_max_score);
+        sum_exp += prob;
+
+        // accumulate output from v_cache
+        long long v_offset = k_offset;
+        for (int d = 0; d < head_dim; d++) {
+            out_accumulator[d] += prob * v_cache[v_offset + d];
+        }
+    }
+    sum_buffer[tid] = sum_exp;
+    __syncthreads();
+
+    // Also sum global_sum_exp for softmax
+    // Here is a place for future optimizations learned from Programming Massively Parallel Processors Chapter 10 - Reductions
+    __shared__ float global_sum_exp;
+    if (tid == 0) {
+        float sum_val = 0.0f;
+        for (int i = 0; i < blockDim.x; i++) {
+            sum_val += sum_buffer[i];
+        }
+        global_sum_exp = sum_val + 1e-6f;
+    }
+    __syncthreads();
+
+    // Use shared memory to write to have less global memory steps writing to output
+    __shared__ float shared_out[MAX_HEAD_DIM];
+    if (tid < head_dim) {
+        shared_out[tid] = 0.0f;
+    }
+    __syncthreads();
+
+    // add local accumulator to shared accumulator per head
+    for (int d = 0; d < head_dim; d++) {
+        atomicAdd(&shared_out[d], out_accumulator[d]);
+    }
+    __syncthreads();
+
+    // Each head has an output, so only first 64 threads will write this to out
+    // q tensor and out tensor have the same dimension in this case
+    // offset for: Sequence A, Head 5, Dimension 0 will be the same
+    int out_offset = q_offset;
+    if (tid < head_dim) {
+        out[out_offset + tid] = shared_out[tid] / global_sum_exp;
+    }
+}
+
+void launch_paged_attention_v2(
+    std::uintptr_t out_ptr,
+    std::uintptr_t q_ptr,
+    std::uintptr_t k_ptr,
+    std::uintptr_t v_ptr,
+    std::uintptr_t table_ptr,
+    std::uintptr_t lens_ptr,
+    int num_seqs,
+    int num_heads,
+    int head_dim,
+    int max_num_blocks,
+    int block_size
+) {
+    // cast integers from Pytorch back to pointers
+    float* out = reinterpret_cast<float*>(out_ptr);
+    const float* q = reinterpret_cast<const float*>(q_ptr);
+    const float* k = reinterpret_cast<const float*>(k_ptr);
+    const float* v = reinterpret_cast<const float*>(v_ptr);
+    const int* table = reinterpret_cast<const int*>(table_ptr);
+    const int* lens = reinterpret_cast<const int*>(lens_ptr);
+
+    // 32 * 50 = 1600 blocks
+    dim3 grid(num_heads, num_seqs);
+
+    // 128 threads per block
+    dim3 block(128);
+
+    paged_attention_kernel_v2<<<grid, block>>>(
+        out, q, k, v, table, lens, 
+        max_num_blocks, block_size, head_dim, num_heads
+    );
+}

@@ -20,7 +20,8 @@ find_package(CUDAToolkit REQUIRED)
 pybind11_add_module(tinyserve_ext 
     src/bindings.cu 
     src/memory.h
-    src/kernels/attention.cu
+    src/kernels/attention_v1.cu
+    src/kernels/attention_v2.cu
 )
 
 # Include headers inside src/
