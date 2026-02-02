@@ -69,3 +69,27 @@ python tests/test_benchmark.py
 
 --- PyTorch Baseline --- PyTorch Latency: 0.478 ms Attention Kernel V1 Slowdown Factor: 44.0x slower than PyTorch Attention Kernel V2 Slowdown Factor: 8.4x slower than PyTorch
 ```
+
+### Max Concurrency Stress Test
+Testing max concurrency with a Zipfian distribution (modeling real-world chatbot traffic where most queries are short but some are very long), we can see that PyTorch wastes a ton of memory. This results in OOM errors at batch 1000. Batch 1000 represents 1000 sequences or users. The waste comes from PyTorch needing to allocate perfect rectangles for K and V to fit the longest sequence in the batch (the "long tail"). In PagedAttention, we deal with very little waste due to using block tables and minimal internal fragmentation.
+```
+python tests/test_max_concurrency.py 
+--- Standard PyTorch ---
+Batch 100: PASS (VRAM: 6.70 GB) | Efficiency: 13.34% used
+Batch 500: PASS (VRAM: 33.31 GB) | Efficiency: 13.96% used
+Batch 1000: FAIL (OOM Crash)
+
+--- PagedAttention ---
+Batch 100: PASS (VRAM: 0.99 GB) | Efficiency: 98.72% used
+Batch 500: PASS (VRAM: 4.93 GB) | Efficiency: 98.75% used
+Batch 1000: PASS (VRAM: 9.51 GB) | Efficiency: 98.69% used
+Batch 2000: PASS (VRAM: 18.84 GB) | Efficiency: 98.67% used
+Batch 3000: PASS (VRAM: 28.07 GB) | Efficiency: 98.71% used
+Batch 4000: PASS (VRAM: 37.59 GB) | Efficiency: 98.68% used
+Batch 5000: FAIL (OOM Crash)
+
+--- Final Scores ---
+PyTorch Max Users:      500
+PagedAttention Max:     4000
+PagedAttention handles 8.0x more concurrent users
+```
