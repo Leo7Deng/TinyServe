@@ -1,7 +1,7 @@
 #include <cuda_runtime.h>
 #include <cmath>
 #include <float.h>
-#include "attention.h"
+#include <torch/extension.h>
 
 #define MAX_HEAD_DIM 64         // mirrors head_dim
 #define THREADS_PER_BLOCK 128   // mirrors blockDim.x
@@ -14,7 +14,7 @@ __global__ void paged_attention_kernel_v2(
     const float* v_cache,       // value cache (mirrors keys)
     const int* block_tables,    // maps [seq, block_idx] -> physical_block
     const int* context_lens,    // length of each sequence
-    int max_num_blocks,         // block_idx dimension of block_tables
+    int max_blocks_per_seq,         // block_idx dimension of block_tables
     int block_size,             // 16
     int head_dim,               // 64
     int num_heads               // 32
@@ -50,7 +50,7 @@ __global__ void paged_attention_kernel_v2(
     for (int i = tid; i < num_tokens; i += blockDim.x) {
         // get which physical block to look at
         int block_idx = i / block_size;
-        int physical_block = block_tables[seq_idx * max_num_blocks + block_idx];
+        int physical_block = block_tables[seq_idx * max_blocks_per_seq + block_idx];
         
         // k_cache is in the shape [num_blocks, block_size, num_heads, head_dim]
         int block_offset = i % block_size;
@@ -93,7 +93,7 @@ __global__ void paged_attention_kernel_v2(
 
     for (int i = tid; i < num_tokens; i += blockDim.x) {
         int block_idx = i / block_size;
-        int physical_block = block_tables[seq_idx * max_num_blocks + block_idx];
+        int physical_block = block_tables[seq_idx * max_blocks_per_seq + block_idx];
         int block_offset = i % block_size;
         long long k_offset = (long long)physical_block * block_size * num_heads * head_dim
                         + (long long)block_offset * num_heads * head_dim
@@ -152,34 +152,69 @@ __global__ void paged_attention_kernel_v2(
 }
 
 void launch_paged_attention_v2(
-    std::uintptr_t out_ptr,
-    std::uintptr_t q_ptr,
-    std::uintptr_t k_ptr,
-    std::uintptr_t v_ptr,
-    std::uintptr_t table_ptr,
-    std::uintptr_t lens_ptr,
-    int num_seqs,
-    int num_heads,
-    int head_dim,
-    int max_num_blocks,
-    int block_size
-) {
-    // cast integers from Pytorch back to pointers
-    float* out = reinterpret_cast<float*>(out_ptr);
-    const float* q = reinterpret_cast<const float*>(q_ptr);
-    const float* k = reinterpret_cast<const float*>(k_ptr);
-    const float* v = reinterpret_cast<const float*>(v_ptr);
-    const int* table = reinterpret_cast<const int*>(table_ptr);
-    const int* lens = reinterpret_cast<const int*>(lens_ptr);
+    torch::Tensor& out,
+    torch::Tensor& query,
+    torch::Tensor& key_cache,
+    torch::Tensor& value_cache,
+    torch::Tensor& block_tables,
+    torch::Tensor& context_lens,
+    int max_context_len
+) 
+{
+    int num_seqs = query.size(0);
+    int num_heads = query.size(1);
+    int head_dim = query.size(2);
+    
+    int max_blocks_per_seq = block_tables.size(1);
+    int block_size = key_cache.size(1);
 
-    // 32 * 50 = 1600 blocks
     dim3 grid(num_heads, num_seqs);
-
-    // 128 threads per block
-    dim3 block(128);
+    dim3 block(THREADS_PER_BLOCK); 
 
     paged_attention_kernel_v2<<<grid, block>>>(
-        out, q, k, v, table, lens, 
-        max_num_blocks, block_size, head_dim, num_heads
+        out.data_ptr<float>(),
+        query.data_ptr<float>(),
+        key_cache.data_ptr<float>(),
+        value_cache.data_ptr<float>(),
+        block_tables.data_ptr<int>(),
+        context_lens.data_ptr<int>(),
+        max_blocks_per_seq, 
+        block_size,         
+        head_dim,
+        num_heads
+        // removed scale
     );
 }
+
+// void launch_paged_attention_v2(
+//     std::uintptr_t out_ptr,
+//     std::uintptr_t q_ptr,
+//     std::uintptr_t k_ptr,
+//     std::uintptr_t v_ptr,
+//     std::uintptr_t table_ptr,
+//     std::uintptr_t lens_ptr,
+//     int num_seqs,
+//     int num_heads,
+//     int head_dim,
+//     int max_blocks_per_seq,
+//     int block_size
+// ) {
+//     // cast integers from Pytorch back to pointers
+//     float* out = reinterpret_cast<float*>(out_ptr);
+//     const float* q = reinterpret_cast<const float*>(q_ptr);
+//     const float* k = reinterpret_cast<const float*>(k_ptr);
+//     const float* v = reinterpret_cast<const float*>(v_ptr);
+//     const int* table = reinterpret_cast<const int*>(table_ptr);
+//     const int* lens = reinterpret_cast<const int*>(lens_ptr);
+
+//     // 32 * 50 = 1600 blocks
+//     dim3 grid(num_heads, num_seqs);
+
+//     // 128 threads per block
+//     dim3 block(128);
+
+//     paged_attention_kernel_v2<<<grid, block>>>(
+//         out, q, k, v, table, lens, 
+//         max_blocks_per_seq, block_size, head_dim, num_heads
+//     );
+// }
