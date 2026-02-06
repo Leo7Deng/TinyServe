@@ -1,0 +1,7 @@
+torch>=2.0.0
+numpy
+pybind11
+ninja
+setuptools
+wheel
+packaging

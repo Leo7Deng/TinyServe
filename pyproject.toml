@@ -1,12 +1,15 @@
+# TinyServe/pyproject.toml
 [build-system]
-requires = ["scikit-build-core>=0.5.0", "pybind11", "cmake", "ninja", "packaging>=23.0"]
-build-backend = "scikit_build_core.build"
+# We MUST list pybind11 here so the isolated build environment gets it
+requires = ["setuptools", "wheel", "torch"]
+build-backend = "setuptools.build_meta"
 
 [project]
 name = "tinyserve"
 version = "0.1.0"
+description = "High-throughput LLM serving with PagedAttention"
 requires-python = ">=3.10"
-
-[tool.scikit-build]
-cmake.verbose = true
-logging.level = "INFO"
+dependencies = [
+    "torch",
+    "numpy",
+]
