@@ -18,6 +18,14 @@ A10 (24 GB PCIe) 30vCPUs, 200 GiB RAM, 1.4 TiB SSD
     Sample Kernel (User 0, Head 0): [0.28064659237861633, 0.09345307946205139, -0.1507822722196579]
     Sample Ref    (User 0, Head 0): [0.28064653277397156, 0.09345296770334244, -0.1507822722196579]
 
+    Testing Attention Kernel V3 Pass: Kernel output matched PyTorch reference!
+    Sample Kernel (User 0, Head 0): [0.28064653277397156, 0.0934530645608902, -0.1507822424173355]
+    Sample Ref    (User 0, Head 0): [0.28064653277397156, 0.09345296770334244, -0.1507822722196579]
+
+    Testing Attention Kernel V4 Pass: Kernel output matched PyTorch reference!
+    Sample Kernel (User 0, Head 0): [0.28064650297164917, 0.09345297515392303, -0.15078230202198029]
+    Sample Ref    (User 0, Head 0): [0.28064653277397156, 0.09345296770334244, -0.1507822722196579]
+
 ### `test_benchmark.py`
 Measures the effective Memory Bandwidth (GB/s) and kernel latency (ms) of the engine, comparing TinyServe (V1 & V2) against naive PyTorch implementations. This quantifies the overhead introduced by memory indirection. While the non-contiguous memory access prevents us from beating PyTorch's contiguous baseline in raw latency, this test verifies that the speed remains competitive. This ensures the latency cost is minimal and well worth the tradeoff for the gain in concurrent user capacity.
 
@@ -27,21 +35,25 @@ A10 (24 GB PCIe) 30vCPUs, 200 GiB RAM, 1.4 TiB SSD
     --- Benchmark Config: Batch=64, Context=1024-4096, VRAM Reserved: 2.68 GB ---
 
     Running Attention Kernel V1
-    Latency: 125.468 ms | Effective Bandwidth: 22.60 GB/s
+    Latency: 124.835 ms | Effective Bandwidth: 22.71 GB/s
 
     Running Attention Kernel V2
-    Latency: 53.238 ms | Effective Bandwidth: 52.17 GB/s
+    Latency: 53.553 ms | Effective Bandwidth: 51.86 GB/s
 
     Running Attention Kernel V3
-    Latency: 51.669 ms | Effective Bandwidth: 51.59 GB/s
+    Latency: 51.890 ms | Effective Bandwidth: 51.37 GB/s
+
+    Running Attention Kernel V4
+    Latency: 26.573 ms | Effective Bandwidth: 99.66 GB/s
 
     Running: PyTorch Baseline
-    Latency: 9.227 ms | Effective Bandwidth: 304.01 GB/s
+    Latency: 9.227 ms | Effective Bandwidth: 303.87 GB/s
 
     --- Results ---
-    Attention Kernel V1: 13.60x slower than PyTorch
-    Attention Kernel V2: 5.77x slower than PyTorch
-    Attention Kernel V3: 5.60x slower than PyTorch
+    Attention Kernel V1: 13.53x slower than PyTorch
+    Attention Kernel V2: 5.80x slower than PyTorch
+    Attention Kernel V3: 5.62x slower than PyTorch
+    Attention Kernel V4: 2.88x slower than PyTorch
 
 ### `test_max_concurrency.py`
 Stress tests the memory manager by simulating irregular sequence lengths (Zipfian distribution) and incrementally increasing batch size until the GPU hits Out Of Memory (OOM). This demonstrates the reduction in KV Cache Fragmentation, showing exactly how many more concurrent users TinyServe can handle compared to contiguous allocation.
@@ -55,30 +67,73 @@ A10 (24 GB PCIe) 30vCPUs, 200 GiB RAM, 1.4 TiB SSD
     Simulating traffic: 90% Short (64-512), 10% Long (2048-4096)
 
     PyTorch
-    - Batch 100   | VRAM: 6.53 GB | Efficiency: 13.94%
-    - Batch 250   | VRAM: 15.81 GB | Efficiency: 14.75%
-    - Batch 500   | FAIL (OOM Crash)
+    - Batch 100   | VRAM: 6.71 GB | Efficiency: 13.60%
+    - Batch 200   | VRAM: 13.41 GB | Efficiency: 13.89%
+    - Batch 300   | VRAM: 19.01 GB | Efficiency: 14.38%
+    - Batch 400   | FAIL (OOM Crash)
 
-    PagedAttention V1
-    - Batch 100   | VRAM: 0.99 GB | Efficiency: 98.71%
-    - Batch 250   | VRAM: 2.36 GB | Efficiency: 98.67%
-    - Batch 500   | VRAM: 4.67 GB | Efficiency: 98.69%
-    - Batch 1000  | VRAM: 9.36 GB | Efficiency: 98.69%
-    - Batch 2000  | VRAM: 18.86 GB | Efficiency: 98.69%
-    - Batch 3000  | FAIL (OOM Crash)
+    Attention Kernel V1
+    - Batch 100   | VRAM: 1.00 GB | Efficiency: 98.80%
+    - Batch 200   | VRAM: 1.89 GB | Efficiency: 98.65%
+    - Batch 300   | VRAM: 2.84 GB | Efficiency: 98.73%
+    - Batch 400   | VRAM: 3.70 GB | Efficiency: 98.67%
+    - Batch 500   | VRAM: 4.66 GB | Efficiency: 98.66%
+    - Batch 1000  | VRAM: 9.57 GB | Efficiency: 98.67%
+    - Batch 2000  | VRAM: 19.13 GB | Efficiency: 98.71%
+    - Batch 2100  | VRAM: 19.97 GB | Efficiency: 98.72%
+    - Batch 2200  | VRAM: 20.81 GB | Efficiency: 98.70%
+    - Batch 2300  | VRAM: 21.63 GB | Efficiency: 98.70%
+    - Batch 2400  | VRAM: 22.44 GB | Efficiency: 98.67%
+    - Batch 2500  | FAIL (OOM Crash)
 
-    PagedAttention V2
-    - Batch 100   | VRAM: 0.93 GB | Efficiency: 98.72%
-    - Batch 250   | VRAM: 2.39 GB | Efficiency: 98.72%
-    - Batch 500   | VRAM: 4.73 GB | Efficiency: 98.69%
-    - Batch 1000  | VRAM: 9.54 GB | Efficiency: 98.70%
-    - Batch 2000  | VRAM: 18.67 GB | Efficiency: 98.66%
-    - Batch 3000  | FAIL (OOM Crash)
+    Attention Kernel V2
+    - Batch 100   | VRAM: 0.94 GB | Efficiency: 98.59%
+    - Batch 200   | VRAM: 1.86 GB | Efficiency: 98.65%
+    - Batch 300   | VRAM: 2.77 GB | Efficiency: 98.63%
+    - Batch 400   | VRAM: 3.74 GB | Efficiency: 98.69%
+    - Batch 500   | VRAM: 4.67 GB | Efficiency: 98.73%
+    - Batch 1000  | VRAM: 9.32 GB | Efficiency: 98.67%
+    - Batch 2000  | VRAM: 19.03 GB | Efficiency: 98.71%
+    - Batch 2100  | VRAM: 19.93 GB | Efficiency: 98.69%
+    - Batch 2200  | VRAM: 20.97 GB | Efficiency: 98.68%
+    - Batch 2300  | VRAM: 21.65 GB | Efficiency: 98.71%
+    - Batch 2400  | VRAM: 22.49 GB | Efficiency: 98.72%
+    - Batch 2500  | FAIL (OOM Crash)
+
+    Attention Kernel V3
+    - Batch 100   | VRAM: 0.99 GB | Efficiency: 98.63%
+    - Batch 200   | VRAM: 1.91 GB | Efficiency: 98.80%
+    - Batch 300   | VRAM: 2.88 GB | Efficiency: 98.72%
+    - Batch 400   | VRAM: 3.77 GB | Efficiency: 98.69%
+    - Batch 500   | VRAM: 4.74 GB | Efficiency: 98.72%
+    - Batch 1000  | VRAM: 9.41 GB | Efficiency: 98.68%
+    - Batch 2000  | VRAM: 18.54 GB | Efficiency: 98.66%
+    - Batch 2100  | VRAM: 19.81 GB | Efficiency: 98.72%
+    - Batch 2200  | VRAM: 20.75 GB | Efficiency: 98.69%
+    - Batch 2300  | VRAM: 21.68 GB | Efficiency: 98.71%
+    - Batch 2400  | VRAM: 22.32 GB | Efficiency: 98.67%
+    - Batch 2500  | FAIL (OOM Crash)
+
+    Attention Kernel V4
+    - Batch 100   | VRAM: 1.00 GB | Efficiency: 98.71%
+    - Batch 200   | VRAM: 1.86 GB | Efficiency: 98.69%
+    - Batch 300   | VRAM: 2.77 GB | Efficiency: 98.74%
+    - Batch 400   | VRAM: 3.87 GB | Efficiency: 98.65%
+    - Batch 500   | VRAM: 4.79 GB | Efficiency: 98.75%
+    - Batch 1000  | VRAM: 9.57 GB | Efficiency: 98.70%
+    - Batch 2000  | VRAM: 18.70 GB | Efficiency: 98.69%
+    - Batch 2100  | VRAM: 19.45 GB | Efficiency: 98.70%
+    - Batch 2200  | VRAM: 20.75 GB | Efficiency: 98.67%
+    - Batch 2300  | VRAM: 21.70 GB | Efficiency: 98.70%
+    - Batch 2400  | VRAM: 22.81 GB | Efficiency: 98.71%
+    - Batch 2500  | FAIL (OOM Crash)
 
     --- Results ---
-    PyTorch Baseline:      250 users
-    PagedAttention V1   : 2000 users
-    PagedAttention V2   : 2000 users
+    PyTorch Baseline:      300 users
+    Attention Kernel V1 : 2400 users
+    Attention Kernel V2 : 2400 users
+    Attention Kernel V3 : 2400 users
+    Attention Kernel V4 : 2400 users
     TinyServe handles 8.0x more concurrent users!
 
 ### `test_memory_manager.py`

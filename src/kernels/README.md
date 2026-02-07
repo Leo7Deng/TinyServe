@@ -11,3 +11,6 @@ This kernel introduces block level parallelism. We launch a grid of (num_heads, 
 
 ### `attention_v3.cu`
 This kernel optimized the bottleneck in V2 by implementing a Parallel Tree Reduction in shared memory. Instead of a linear scan (O(N)), active threads cooperate to reduce values in logarithmic steps (O(logN)). This maximizes GPU occupancy and significantly reduces the time threads spend waiting at the __syncthreads() barrier.
+
+### `attention_v4.cu`
+This kernel keeps the parallel tree reduction from V3 but optimizes the Memory Access Patterns. In previous versions, threads loaded data 1 float (4 bytes) at a time, which underutilizes the GPU's memory bus. In V4, we use reinterpret_cast<float4*> to load 128 bits (16 bytes) in a single instruction. This reduces the total number of memory transactions by 4x, significantly increasing effective bandwidth and throughput without changing the core math.

@@ -143,15 +143,17 @@ def main():
     min_seq_len = 64
     max_seq_len = 4096 
     
-    batch_sizes = [100, 250, 500, 1000, 2000, 3000, 4000, 5000]
+    batch_sizes = [100, 200, 300, 400, 500, 1000, 2000, 2100, 2200, 2300, 2400, 2500]
     
     max_pytorch = run_pytorch_test(batch_sizes, min_seq_len, max_seq_len, num_heads, head_dim, device, dtype)
 
     cleanup()
     
     kernels = [
-        ("PagedAttention V1", tinyserve_ext.paged_attention_v1),
-        ("PagedAttention V2", tinyserve_ext.paged_attention_v2),
+        ("Attention Kernel V1", tinyserve_ext.paged_attention_v1),
+        ("Attention Kernel V2", tinyserve_ext.paged_attention_v2),
+        ("Attention Kernel V3", tinyserve_ext.paged_attention_v3),
+        ("Attention Kernel V4", tinyserve_ext.paged_attention_v4),
     ]
     
     paged_results = run_paged_test(batch_sizes, min_seq_len, max_seq_len, num_heads, head_dim, block_size, device, dtype, kernels)
