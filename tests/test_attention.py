@@ -15,7 +15,7 @@ def test_attention():
     dtype = torch.float32
     device = "cuda"
     
-    print(f"Config: {num_seqs} Seqs, {num_heads} Heads, Block Size {block_size}")
+    print(f"--- Attention Config: {num_seqs} Seqs, {num_heads} Heads, Block Size {block_size} ---\n")
     
     # Create random sequences
     # User A: 30 tokens (spans 2 blocks)
@@ -63,7 +63,7 @@ def test_attention():
         
         for logical_idx in range(num_blocks_needed):
             # assign a physical block
-            physical_block = physical_blocks_pool[free_block_idx]
+            physical_block = physical_blocks_pool[pool_idx]
             pool_idx += 1
             
             # write to block table
@@ -81,34 +81,18 @@ def test_attention():
             
     # flatten queries into [num_seqs, num_heads, head_dim]
     q_tensor = torch.cat(current_queries, dim=0)
-    out_tensor = torch.empty_like(q_tensor)
     lens_tensor = torch.tensor(seq_lengths, device=device, dtype=torch.int32)
     
-    print("Running Paged Attention Kernel")
-    tinyserve_ext.paged_attention_v1(
-        out_tensor.data_ptr(),
-        q_tensor.data_ptr(),
-        k_cache.data_ptr(),
-        v_cache.data_ptr(),
-        block_tables.data_ptr(),
-        lens_tensor.data_ptr(),
-        num_seqs,
-        num_heads,
-        head_dim,
-        max_blocks_per_seq,
-        block_size
-    )
-    
-    print("Running Reference PyTorch Attention")
+    max_context_len = max(seq_lengths)
+
+    print("Computing PyTorch Reference")
     ref_outputs = []
-    
-    # scaling factor (1 / sqrt(64) = 0.125) to prevent gradients from exploding
     scale = 1.0 / math.sqrt(head_dim)
+    
     for i in range(num_seqs):
-        # retrieve the groun truth contiguous data
-        q = current_queries[i]  # [1, num_heads, head_dim] = [1, 32, 64]
-        k = true_keys[i]        # [seq_len, num_heads, head_dim] = [30, 32, 64]
-        v = true_values[i]      # [seq_len, num_heads, head_dim] = [30, 32, 64]
+        q = current_queries[i]
+        k = true_keys[i]
+        v = true_values[i]
         
         # Reshape for Matmul, shape into [Batch, Head, Sequence, Dim]
         # We move num_heads to the front so we can process all 4 heads in parallel
@@ -128,7 +112,6 @@ def test_attention():
         # The result [32, 1, 30] means: for each of the 32 heads, we have 1 query matching 30 past tokens.
         scores = torch.matmul(q_ref, k_ref.transpose(1, 2)) * scale
         
-        # Apply softmax across the last dimension (the past 30 tokens)
         probs = torch.softmax(scores, dim=-1)
         
         # Compute output (probs * V)
@@ -136,24 +119,47 @@ def test_attention():
         # This means: for each of the 32 heads, we get a weighted sum vector of size 64
         out_ref = torch.matmul(probs, v_ref)
         
-        # move num_heads back to the middle to match the original shape
+        # Permute back to [1, 32, 64] so it matches the q_tensor shape
         out_ref = out_ref.permute(1, 0, 2)
-        
+
         ref_outputs.append(out_ref)
         
-    # combine User A and User B results into one tensor
     ref_tensor = torch.cat(ref_outputs, dim=0)
+    
+    kernels = [
+        ("Attention Kernel V1", tinyserve_ext.paged_attention_v1),
+        ("Attention Kernel V2", tinyserve_ext.paged_attention_v2),
+    ]
+
+    for name, kernel_func in kernels:
+        print(f"\nTesting {name}", end=" ")
         
-    if torch.allclose(out_tensor, ref_tensor, atol=1e-3, rtol=1e-3):
-        print("Pass: Kernel output matched PyTorch reference!")
-        print(f"Sample Kernel (User 0, Head 0): {out_tensor[0,0,:3].tolist()}")
-        print(f"Sample Ref    (User 0, Head 0): {ref_tensor[0,0,:3].tolist()}")
-    else:
-        print("Fail: Outputs do not match.")
-        diff = (out_tensor - ref_tensor).abs().max().item()
-        print(f"Max Difference: {diff}")
-        print("Kernel Output:\n", out_tensor[0,0,:5])
-        print("Reference Output:\n", ref_tensor[0,0,:5])
+        # Reset output tensor for safety
+        out_tensor = torch.empty_like(q_tensor)
+        
+        try:
+            kernel_func(
+                out_tensor,
+                q_tensor,
+                k_cache,
+                v_cache,
+                block_tables,
+                lens_tensor
+            )
+            
+            if torch.allclose(out_tensor, ref_tensor, atol=1e-3, rtol=1e-3):
+                print("Pass: Kernel output matched PyTorch reference!")
+                print(f"Sample Kernel (User 0, Head 0): {out_tensor[0,0,:3].tolist()}")
+                print(f"Sample Ref    (User 0, Head 0): {ref_tensor[0,0,:3].tolist()}")
+            else:
+                print("Fail: Outputs do not match.")
+                diff = (out_tensor - ref_tensor).abs().max().item()
+                print(f"Max Difference: {diff}")
+                print("Kernel Output:\n", out_tensor[0,0,:5])
+                print("Reference Output:\n", ref_tensor[0,0,:5])
+                
+        except Exception as e:
+            print(f"CRASH: {e}")
         
 if __name__ == "__main__":
     test_attention()

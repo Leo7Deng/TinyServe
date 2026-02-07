@@ -109,8 +109,7 @@ void launch_paged_attention_v1(
     torch::Tensor& key_cache,
     torch::Tensor& value_cache,
     torch::Tensor& block_tables,
-    torch::Tensor& context_lens,
-    int max_context_len
+    torch::Tensor& context_lens
 ) {
     int num_seqs = query.size(0);
     int num_heads = query.size(1);

@@ -17,10 +17,10 @@ def generate_zipfian_lengths(bs, min_seq_len, max_seq_len, device):
     long_users = bs - short_users
     
     # 90% are short (64 to 512 tokens)
-    lens_short = torch.randint(min_seq_len, 512, (short_users,), device=device)
+    lens_short = torch.randint(min_seq_len, 512, (short_users,), dtype=torch.int32, device=device)
     
     # 10% are long (2048 to max_seq_len)
-    lens_long = torch.randint(2048, max_seq_len, (long_users,), device=device)
+    lens_long = torch.randint(2048, max_seq_len, (long_users,), dtype=torch.int32, device=device)
     
     # Combine and shuffle
     lens = torch.cat([lens_short, lens_long])
@@ -29,14 +29,14 @@ def generate_zipfian_lengths(bs, min_seq_len, max_seq_len, device):
     return lens
 
 def run_pytorch_test(batch_sizes, min_seq_len, max_seq_len, num_heads, head_dim, device, dtype):
-    print("--- Standard PyTorch ---")
+    print("\nPyTorch")
     cleanup() 
     
     max_users = 0
             
     for bs in batch_sizes:
         try:
-            # Generate Skewed Lengths
+            # Generate Skewed Lenghts
             lens = generate_zipfian_lengths(bs, min_seq_len, max_seq_len, device)
             current_max = lens.max().item()
             
@@ -60,76 +60,80 @@ def run_pytorch_test(batch_sizes, min_seq_len, max_seq_len, num_heads, head_dim,
             
             # Check memory to see if it ran successfully
             mem = get_vram_usage_gb()
-            print(f"Batch {bs}: PASS (VRAM: {mem:.2f} GB) | Efficiency: {efficiency:.2f}% used")
+            print(f"- Batch {bs:<5} | VRAM: {mem:.2f} GB | Efficiency: {efficiency:.2f}%")
             max_users = bs
             
             del k, v, q, lens
             cleanup()
             
         except torch.cuda.OutOfMemoryError:
-            print(f"Batch {bs}: FAIL (OOM Crash)")
+            print(f"- Batch {bs:<5} | FAIL (OOM Crash)")
             break
         except Exception as e:
-            print(f"Batch {bs}: FAIL ({e})")
+            print(f"- Batch {bs:<5} | FAIL ({e})")
             break
             
     return max_users
 
-def run_paged_test(batch_sizes, min_seq_len, max_seq_len, num_heads, head_dim, block_size, device, dtype):
-    print("\n--- PagedAttention ---")
-    cleanup() 
+def run_paged_test(batch_sizes, min_seq_len, max_seq_len, num_heads, head_dim, block_size, device, dtype, kernels):
+    # We test all kernels to ensure optimizations don't regress capacity (e.g. using too much shared mem)
     
-    max_users = 0
+    results = {}
     
-    for bs in batch_sizes:
-        try:
-            # Generate Same Skewed Lengths
-            lens = generate_zipfian_lengths(bs, min_seq_len, max_seq_len, device)
+    for name, kernel_func in kernels:
+        print(f"\n{name}")
+        cleanup() 
+        max_users = 0
+        for bs in batch_sizes:
+            try:
+                lens = generate_zipfian_lengths(bs, min_seq_len, max_seq_len, device)
+                
+                # Calculate internal fragmentation
+                blocks_per_seq = (lens + block_size - 1) // block_size
+                num_total_blocks = blocks_per_seq.sum().item()
+                
+                total_slots_allocated = num_total_blocks * block_size
+                total_tokens_used = lens.sum().item()
+                efficiency = (total_tokens_used / total_slots_allocated) * 100
+                
+                k_cache = torch.empty(num_total_blocks, block_size, num_heads, head_dim, device=device, dtype=dtype)
+                v_cache = torch.empty(num_total_blocks, block_size, num_heads, head_dim, device=device, dtype=dtype)
+                
+                max_blocks_per_seq = (max_seq_len // block_size) + 1
+                block_tables = torch.zeros(bs, max_blocks_per_seq, dtype=torch.int32, device=device)
+                
+                q = torch.randn(bs, num_heads, head_dim, device=device, dtype=dtype)
+                out = torch.empty_like(q)
+                
+                # Run Kernel
+                kernel_func(
+                    out, q, k_cache, v_cache,
+                    block_tables, lens
+                )
+                
+                mem = get_vram_usage_gb()
+                print(f"- Batch {bs:<5} | VRAM: {mem:.2f} GB | Efficiency: {efficiency:.2f}%")
+                
+                max_users = bs
+                
+                del k_cache, v_cache, q, out, block_tables, lens
+                cleanup()
+                
+            except torch.cuda.OutOfMemoryError:
+                print(f"- Batch {bs:<5} | FAIL (OOM Crash)")
+                break
+            except Exception as e:
+                print(f"- Batch {bs:<5} | FAIL ({e})")
+                break
+        
+        results[name] = max_users
             
-            # Calculate internal fragmentation
-            blocks_per_seq = (lens + block_size - 1) // block_size
-            num_total_blocks = blocks_per_seq.sum().item()
-            
-            total_slots_allocated = num_total_blocks * block_size
-            total_tokens_used = lens.sum().item()
-            efficiency = (total_tokens_used / total_slots_allocated) * 100
-            
-            k_cache = torch.empty(num_total_blocks, block_size, num_heads, head_dim, device=device, dtype=dtype)
-            v_cache = torch.empty(num_total_blocks, block_size, num_heads, head_dim, device=device, dtype=dtype)
-            
-            max_blocks_per_seq = (max_seq_len // block_size) + 1
-            block_tables = torch.zeros(bs, max_blocks_per_seq, dtype=torch.int32, device=device)
-            
-            q = torch.randn(bs, num_heads, head_dim, device=device, dtype=dtype)
-            out = torch.empty_like(q)
-            
-            # Run Kernel
-            tinyserve_ext.paged_attention_v2(
-                out.data_ptr(), q.data_ptr(), k_cache.data_ptr(), v_cache.data_ptr(),
-                block_tables.data_ptr(), lens.data_ptr(),
-                bs, num_heads, head_dim, max_blocks_per_seq, block_size
-            )
-            
-            mem = get_vram_usage_gb()
-            print(f"Batch {bs}: PASS (VRAM: {mem:.2f} GB) | Efficiency: {efficiency:.2f}% used")
-            
-            max_users = bs
-            
-            del k_cache, v_cache, q, out, block_tables, lens
-            cleanup()
-            
-        except torch.cuda.OutOfMemoryError:
-            print(f"Batch {bs}: FAIL (OOM Crash)")
-            break
-        except Exception as e:
-            print(f"Batch {bs}: FAIL ({e})")
-            break
-            
-    return max_users
+    return results
 
 def main():
-    # Run a max concurrency stress test with a Zipfian Distribution
-    # This simulated real traffic with 90% short messages, 10% long documents
+    print("--- Max Concurrency Stress Test (Zipfian Distribution) ---")
+    print("Simulating traffic: 90% Short (64-512), 10% Long (2048-4096)")
+    
     device = "cuda"
     dtype = torch.float32
     
@@ -139,24 +143,32 @@ def main():
     min_seq_len = 64
     max_seq_len = 4096 
     
-    batch_sizes = [100, 500, 1000, 2000, 3000, 4000, 5000]
+    batch_sizes = [100, 250, 500, 1000, 2000, 3000, 4000, 5000]
     
     max_pytorch = run_pytorch_test(batch_sizes, min_seq_len, max_seq_len, num_heads, head_dim, device, dtype)
 
     cleanup()
     
-    max_paged = run_paged_test(batch_sizes, min_seq_len, max_seq_len, num_heads, head_dim, block_size, device, dtype)
-
-    print("\n--- Final Scores ---")
-    print(f"PyTorch Max Users:      {max_pytorch}")
-    print(f"PagedAttention Max:     {max_paged}")
+    kernels = [
+        ("PagedAttention V1", tinyserve_ext.paged_attention_v1),
+        ("PagedAttention V2", tinyserve_ext.paged_attention_v2),
+    ]
     
-    if max_paged > max_pytorch:
-        ratio = max_paged / max_pytorch
-        print(f"PagedAttention handles {ratio:.1f}x more concurrent users")
+    paged_results = run_paged_test(batch_sizes, min_seq_len, max_seq_len, num_heads, head_dim, block_size, device, dtype, kernels)
+
+    print("\n--- Results ---")
+    print(f"PyTorch Baseline:      {max_pytorch} users")
+    
+    best_paged = 0
+    for name, score in paged_results.items():
+        print(f"{name:<20}: {score} users")
+        best_paged = max(best_paged, score)
+    
+    if best_paged > max_pytorch:
+        ratio = best_paged / max_pytorch
+        print(f"TinyServe handles {ratio:.1f}x more concurrent users!")
     else:
-        print("Paged Attention did not handle more concurrent users")
+        print("Test inconclusive: No concurrency gain observed.")
 
 if __name__ == "__main__":
     main()
-    

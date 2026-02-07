@@ -157,8 +157,7 @@ void launch_paged_attention_v2(
     torch::Tensor& key_cache,
     torch::Tensor& value_cache,
     torch::Tensor& block_tables,
-    torch::Tensor& context_lens,
-    int max_context_len
+    torch::Tensor& context_lens
 ) 
 {
     int num_seqs = query.size(0);
@@ -182,39 +181,5 @@ void launch_paged_attention_v2(
         block_size,         
         head_dim,
         num_heads
-        // removed scale
     );
 }
-
-// void launch_paged_attention_v2(
-//     std::uintptr_t out_ptr,
-//     std::uintptr_t q_ptr,
-//     std::uintptr_t k_ptr,
-//     std::uintptr_t v_ptr,
-//     std::uintptr_t table_ptr,
-//     std::uintptr_t lens_ptr,
-//     int num_seqs,
-//     int num_heads,
-//     int head_dim,
-//     int max_blocks_per_seq,
-//     int block_size
-// ) {
-//     // cast integers from Pytorch back to pointers
-//     float* out = reinterpret_cast<float*>(out_ptr);
-//     const float* q = reinterpret_cast<const float*>(q_ptr);
-//     const float* k = reinterpret_cast<const float*>(k_ptr);
-//     const float* v = reinterpret_cast<const float*>(v_ptr);
-//     const int* table = reinterpret_cast<const int*>(table_ptr);
-//     const int* lens = reinterpret_cast<const int*>(lens_ptr);
-
-//     // 32 * 50 = 1600 blocks
-//     dim3 grid(num_heads, num_seqs);
-
-//     // 128 threads per block
-//     dim3 block(128);
-
-//     paged_attention_kernel_v2<<<grid, block>>>(
-//         out, q, k, v, table, lens, 
-//         max_blocks_per_seq, block_size, head_dim, num_heads
-//     );
-// }

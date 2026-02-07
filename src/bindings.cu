@@ -18,8 +18,7 @@ void launch_paged_attention_v1(
     torch::Tensor& key_cache,
     torch::Tensor& value_cache,
     torch::Tensor& block_tables,
-    torch::Tensor& context_lens,
-    int max_context_len
+    torch::Tensor& context_lens
 );
 
 
@@ -29,8 +28,7 @@ void launch_paged_attention_v2(
     torch::Tensor& key_cache,
     torch::Tensor& value_cache,
     torch::Tensor& block_tables,
-    torch::Tensor& context_lens,
-    int max_context_len
+    torch::Tensor& context_lens
 );
 
 
