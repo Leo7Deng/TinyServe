@@ -6,7 +6,6 @@
 #define MAX_HEAD_DIM 64     // mirrors head_dim
 
 __global__ void paged_attention_kernel_v1(
-    // __restrict__
     float* out,                 // output tensor
     const float* q,             // query tensor (not a bottleneck in inference because only need q of most recent token)
     const float* k_cache,       // key cache (can be very large), shape: [num_blocks, block_size, num_heads, head_dim]

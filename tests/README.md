@@ -27,17 +27,21 @@ A10 (24 GB PCIe) 30vCPUs, 200 GiB RAM, 1.4 TiB SSD
     --- Benchmark Config: Batch=64, Context=1024-4096, VRAM Reserved: 2.68 GB ---
 
     Running Attention Kernel V1
-    Latency: 124.839 ms | Effective Bandwidth: 22.71 GB/s
+    Latency: 125.468 ms | Effective Bandwidth: 22.60 GB/s
 
     Running Attention Kernel V2
-    Latency: 53.589 ms | Effective Bandwidth: 51.83 GB/s
+    Latency: 53.238 ms | Effective Bandwidth: 52.17 GB/s
+
+    Running Attention Kernel V3
+    Latency: 51.669 ms | Effective Bandwidth: 51.59 GB/s
 
     Running: PyTorch Baseline
-    Latency: 9.226 ms | Effective Bandwidth: 284.24 GB/s
+    Latency: 9.227 ms | Effective Bandwidth: 304.01 GB/s
 
     --- Results ---
-    Attention Kernel V1: 13.53x slower than PyTorch
-    Attention Kernel V2: 5.81x slower than PyTorch
+    Attention Kernel V1: 13.60x slower than PyTorch
+    Attention Kernel V2: 5.77x slower than PyTorch
+    Attention Kernel V3: 5.60x slower than PyTorch
 
 ### `test_max_concurrency.py`
 Stress tests the memory manager by simulating irregular sequence lengths (Zipfian distribution) and incrementally increasing batch size until the GPU hits Out Of Memory (OOM). This demonstrates the reduction in KV Cache Fragmentation, showing exactly how many more concurrent users TinyServe can handle compared to contiguous allocation.

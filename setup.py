@@ -27,6 +27,7 @@ setup(
                 'src/kernels/reshape_and_cache.cu',
                 'src/kernels/attention_v1.cu',
                 'src/kernels/attention_v2.cu',
+                'src/kernels/attention_v3.cu',
             ],
             include_dirs=global_includes,
             extra_compile_args={

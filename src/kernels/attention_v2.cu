@@ -7,17 +7,16 @@
 #define THREADS_PER_BLOCK 128   // mirrors blockDim.x
 
 __global__ void paged_attention_kernel_v2(
-    // __restrict__
-    float* out,                 // output tensor
-    const float* q,             // query tensor (not a bottleneck in inference because only need q of most recent token)
-    const float* k_cache,       // key cache (can be very large), shape: [num_blocks, block_size, num_heads, head_dim]
-    const float* v_cache,       // value cache (mirrors keys)
-    const int* block_tables,    // maps [seq, block_idx] -> physical_block
-    const int* context_lens,    // length of each sequence
-    int max_blocks_per_seq,         // block_idx dimension of block_tables
-    int block_size,             // 16
-    int head_dim,               // 64
-    int num_heads               // 32
+    float* __restrict__ out,                 // output tensor
+    const float* __restrict__ q,             // query tensor (not a bottleneck in inference because only need q of most recent token)
+    const float* __restrict__ k_cache,       // key cache (can be very large), shape: [num_blocks, block_size, num_heads, head_dim]
+    const float* __restrict__ v_cache,       // value cache (mirrors keys)
+    const int* __restrict__ block_tables,    // maps [seq, block_idx] -> physical_block
+    const int* __restrict__ context_lens,    // length of each sequence
+    int max_blocks_per_seq,                  // block_idx dimension of block_tables
+    int block_size,                          // 16
+    int head_dim,                            // 64
+    int num_heads                            // 32
 ) {
     // Launch grid as (num_heads, num_seqs)
     // blockIdx.x handles each head

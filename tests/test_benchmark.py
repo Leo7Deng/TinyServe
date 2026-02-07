@@ -98,6 +98,7 @@ def benchmark():
     kernels = [
         ("Attention Kernel V1", tinyserve_ext.paged_attention_v1),
         ("Attention Kernel V2", tinyserve_ext.paged_attention_v2),
+        ("Attention Kernel V3", tinyserve_ext.paged_attention_v3),
     ]
     
     kernel_latencies = {}
