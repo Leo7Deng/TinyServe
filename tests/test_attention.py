@@ -131,6 +131,7 @@ def test_attention():
         ("Attention Kernel V2", tinyserve_ext.paged_attention_v2),
         ("Attention Kernel V3", tinyserve_ext.paged_attention_v3),
         ("Attention Kernel V4", tinyserve_ext.paged_attention_v4),
+        ("Attention Kernel V5", tinyserve_ext.paged_attention_v5),
     ]
 
     for name, kernel_func in kernels:

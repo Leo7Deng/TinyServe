@@ -16,11 +16,13 @@ This acts as a virtual memory manager. It creates a KVCache object which allocat
 ### Data Plane (reshape_and_cache.cu)
 To actually store and move the data in VRAM, we interface using a custom CUDA kernel. During the LLM's forward pass, the Python control plane passes the virtual to physical memory mapping to this custom kernel. reshape_and_cache is called for every new token, bypassing PyTorch to physically insert the newly generated Key/Value tensors into the scattered, non-contiguous physical memory blocks.
 
-
 ## Continuous Batching (scheduler.py)
 To complement PagedAttention, I created a custom scheduler to implement continuous batching. Instead of static batching where the GPU sits idle waiting for the longest sequence to finish, the scheduler ejects finished sequences immediately and inserts new requests from the queue.
 
 This design has some similarities to an OS thread scheduler. Each request is treated as a discrete task with its own saved context (its block table mapping and generation state), allowing the engine to efficiently multiplex sequences at every token generation cycle and keep GPU utilization at its peak.
+
+## Custom Kernels
+To compute attention across scattered memory pages, standard PyTorch functions no longer work. I wrote custom CUDA attention kernels designed specifically to intake the block table mappings to traverse a non-contiguous KV Cache. The final iteration of my custom kernel implements several hardware-level optimizations of: block level parallelism through shared memory, parallel tree reduction, and vectorized memory access patterns to saturate the memory bus.
 
 ## Results
 

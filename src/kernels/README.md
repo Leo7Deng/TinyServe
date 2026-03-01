@@ -14,3 +14,6 @@ This kernel optimized the bottleneck in V2 by implementing a Parallel Tree Reduc
 
 ### `attention_v4.cu`
 This kernel keeps the parallel tree reduction from V3 but optimizes the Memory Access Patterns. In previous versions, threads loaded data 1 float (4 bytes) at a time, which underutilizes the GPU's memory bus. In V4, we use reinterpret_cast<float4*> to load 128 bits (16 bytes) in a single instruction. This reduces the total number of memory transactions by 4x, significantly increasing effective bandwidth and throughput without changing the core math.
+
+### `attention_v5.cu`
+While integrating TinyLlama as a benchmark, the attention kernel needed to support Grouped Query Attention (GQA). In previous versions, the kernel assumed a 1:1 mapping between Q heads and KV heads. However, TinyLlama 1.1B uses 32 Q heads but only 4 KV heads, where groups of 8 Q heads share the same KV head. KV caches are relatively redundant across heads, so this reduces KV memory cost by 8x without significantly decreasing performance. The kernel correctly maps KV cache indexes taking num Q heads:num KV heads into account.

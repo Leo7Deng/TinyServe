@@ -29,6 +29,7 @@ setup(
                 'src/kernels/attention_v2.cu',
                 'src/kernels/attention_v3.cu',
                 'src/kernels/attention_v4.cu',
+                'src/kernels/attention_v5.cu',
             ],
             include_dirs=global_includes,
             extra_compile_args={

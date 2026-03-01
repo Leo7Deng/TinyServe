@@ -40,7 +40,7 @@ class Sequence:
 class SequenceGroup:
     """
     Sequence group will only hold one sequence most of the time (like ChatGPT). 
-    owever, in benchmarking and special use cases, beam search is needed, and 
+    However, in benchmarking and special use cases, beam search is needed, and 
     SequenceGroup will significantly decrease the amount of memory used, with 
     little overhead when it is not needed.
     """
