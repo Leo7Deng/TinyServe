@@ -6,11 +6,11 @@ import math
 def run_attention_kernel(
     num_seqs, min_seq_len, max_seq_len, num_heads, head_dim, block_size, 
     device, dtype, max_blocks_per_seq, total_blocks_needed, max_num_blocks, 
-    paged_attention_func
+    paged_attention_func, num_kv_heads=None
 ):
-    # Create the massive physical heap in GPU VRAM
-    k_cache = torch.randn(max_num_blocks, block_size, num_heads, head_dim, device=device, dtype=dtype)
-    v_cache = torch.randn(max_num_blocks, block_size, num_heads, head_dim, device=device, dtype=dtype)
+    cache_heads = num_kv_heads if num_kv_heads is not None else num_heads
+    k_cache = torch.randn(max_num_blocks, block_size, cache_heads, head_dim, device=device, dtype=dtype)
+    v_cache = torch.randn(max_num_blocks, block_size, cache_heads, head_dim, device=device, dtype=dtype)
     
     # 1 token query per user (Decoding Phase)
     q = torch.randn(num_seqs, num_heads, head_dim, device=device, dtype=dtype)
@@ -100,6 +100,10 @@ def benchmark():
         ("Attention Kernel V2", tinyserve_ext.paged_attention_v2),
         ("Attention Kernel V3", tinyserve_ext.paged_attention_v3),
         ("Attention Kernel V4", tinyserve_ext.paged_attention_v4),
+    ]
+    
+    # V5 uses GQA (4 KV heads instead of 32), needs separate cache
+    gqa_kernels = [
         ("Attention Kernel V5", tinyserve_ext.paged_attention_v5),
     ]
     
@@ -111,6 +115,19 @@ def benchmark():
                 num_seqs, min_seq_len, max_seq_len, num_heads, head_dim, block_size, 
                 device, dtype, max_blocks_per_seq, total_blocks_needed, max_num_blocks, 
                 kernel_func
+            )
+            kernel_latencies[name] = latency
+        except Exception as e:
+            print(f"Failed to run {name}: {e}")
+            kernel_latencies[name] = float('inf')
+    
+    for name, kernel_func in gqa_kernels:
+        print(f"\nRunning {name}")
+        try:
+            latency = run_attention_kernel(
+                num_seqs, min_seq_len, max_seq_len, num_heads, head_dim, block_size, 
+                device, dtype, max_blocks_per_seq, total_blocks_needed, max_num_blocks, 
+                kernel_func, num_kv_heads=4
             )
             kernel_latencies[name] = latency
         except Exception as e:

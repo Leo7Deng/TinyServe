@@ -75,7 +75,7 @@ def run_pytorch_test(batch_sizes, min_seq_len, max_seq_len, num_heads, head_dim,
             
     return max_users
 
-def run_paged_test(batch_sizes, min_seq_len, max_seq_len, num_heads, head_dim, block_size, device, dtype, kernels):
+def run_paged_test(batch_sizes, min_seq_len, max_seq_len, num_heads, head_dim, block_size, device, dtype, kernels, num_kv_heads=None):
     # We test all kernels to ensure optimizations don't regress capacity (e.g. using too much shared mem)
     
     results = {}
@@ -96,8 +96,9 @@ def run_paged_test(batch_sizes, min_seq_len, max_seq_len, num_heads, head_dim, b
                 total_tokens_used = lens.sum().item()
                 efficiency = (total_tokens_used / total_slots_allocated) * 100
                 
-                k_cache = torch.empty(num_total_blocks, block_size, num_heads, head_dim, device=device, dtype=dtype)
-                v_cache = torch.empty(num_total_blocks, block_size, num_heads, head_dim, device=device, dtype=dtype)
+                cache_heads = num_kv_heads if num_kv_heads is not None else num_heads
+                k_cache = torch.empty(num_total_blocks, block_size, cache_heads, head_dim, device=device, dtype=dtype)
+                v_cache = torch.empty(num_total_blocks, block_size, cache_heads, head_dim, device=device, dtype=dtype)
                 
                 max_blocks_per_seq = (max_seq_len // block_size) + 1
                 block_tables = torch.zeros(bs, max_blocks_per_seq, dtype=torch.int32, device=device)
