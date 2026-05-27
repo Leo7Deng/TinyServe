@@ -239,31 +239,36 @@ def test_attention():
     
     gqa_ref_tensor = torch.cat(gqa_ref_outputs, dim=0)
     
-    # Test V5
-    print(f"\nTesting Attention Kernel V5 (GQA)", end=" ")
-    gqa_out_tensor = torch.empty_like(gqa_q_tensor)
-    
-    try:
-        tinyserve_ext.paged_attention_v5(
-            gqa_out_tensor,
-            gqa_q_tensor,
-            gqa_k_cache,
-            gqa_v_cache,
-            gqa_block_tables,
-            lens_tensor
-        )
-        
-        if torch.allclose(gqa_out_tensor, gqa_ref_tensor, atol=1e-3, rtol=1e-3):
-            print("Pass: V5 GQA output matched PyTorch reference!")
-            print(f"Sample Kernel (User 0, Head 0): {gqa_out_tensor[0,0,:3].tolist()}")
-            print(f"Sample Ref    (User 0, Head 0): {gqa_ref_tensor[0,0,:3].tolist()}")
-        else:
-            print("Fail: Outputs do not match.")
-            diff = (gqa_out_tensor - gqa_ref_tensor).abs().max().item()
-            print(f"Max Difference: {diff}")
-            
-    except Exception as e:
-        print(f"CRASH: {e}")
+    gqa_kernels = [
+        ("Attention Kernel V5 (GQA)", tinyserve_ext.paged_attention_v5),
+        ("Attention Kernel V6 (GQA + online softmax)", tinyserve_ext.paged_attention_v6),
+    ]
+
+    for name, kernel_func in gqa_kernels:
+        print(f"\nTesting {name}", end=" ")
+        gqa_out_tensor = torch.empty_like(gqa_q_tensor)
+
+        try:
+            kernel_func(
+                gqa_out_tensor,
+                gqa_q_tensor,
+                gqa_k_cache,
+                gqa_v_cache,
+                gqa_block_tables,
+                lens_tensor
+            )
+
+            if torch.allclose(gqa_out_tensor, gqa_ref_tensor, atol=1e-3, rtol=1e-3):
+                print("Pass: GQA output matched PyTorch reference!")
+                print(f"Sample Kernel (User 0, Head 0): {gqa_out_tensor[0,0,:3].tolist()}")
+                print(f"Sample Ref    (User 0, Head 0): {gqa_ref_tensor[0,0,:3].tolist()}")
+            else:
+                print("Fail: Outputs do not match.")
+                diff = (gqa_out_tensor - gqa_ref_tensor).abs().max().item()
+                print(f"Max Difference: {diff}")
+
+        except Exception as e:
+            print(f"CRASH: {e}")
         
 if __name__ == "__main__":
     test_attention()

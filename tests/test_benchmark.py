@@ -105,6 +105,7 @@ def benchmark():
     # V5 uses GQA (4 KV heads instead of 32), needs separate cache
     gqa_kernels = [
         ("Attention Kernel V5", tinyserve_ext.paged_attention_v5),
+        ("Attention Kernel V6", tinyserve_ext.paged_attention_v6),
     ]
     
     kernel_latencies = {}

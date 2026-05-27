@@ -17,3 +17,6 @@ This kernel keeps the parallel tree reduction from V3 but optimizes the Memory A
 
 ### `attention_v5.cu`
 While integrating TinyLlama as a benchmark, the attention kernel needed to support Grouped Query Attention (GQA). In previous versions, the kernel assumed a 1:1 mapping between Q heads and KV heads. However, TinyLlama 1.1B uses 32 Q heads but only 4 KV heads, where groups of 8 Q heads share the same KV head. KV caches are relatively redundant across heads, so this reduces KV memory cost by 8x without significantly decreasing performance. The kernel correctly maps KV cache indexes taking num Q heads:num KV heads into account.
+
+### `attention_v6.cu`
+This kernel keeps the PagedAttention block table lookup and GQA mapping from V5, but replaces the two-pass softmax with online softmax. Each thread streams its assigned K/V tokens once, maintaining a running max, running softmax denominator, and running weighted-value accumulator. Threads then merge those online-softmax states in shared memory. This is the first FlashAttention-style version: correctness-oriented first, with fewer K-cache reads than V5, but not yet fully tiled or tuned.

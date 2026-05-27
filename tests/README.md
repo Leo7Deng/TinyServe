@@ -27,7 +27,7 @@ A10 (24 GB PCIe) 30vCPUs, 200 GiB RAM, 1.4 TiB SSD
     Sample Ref    (User 0, Head 0): [0.28064653277397156, 0.09345296770334244, -0.1507822722196579]
 
 
-    --- GQA Attention Test for V5 (32 Q heads, 4 KV heads) ---
+    --- GQA Attention Test for V5/V6 (32 Q heads, 4 KV heads) ---
 
     Computing PyTorch GQA Reference
 
@@ -35,8 +35,10 @@ A10 (24 GB PCIe) 30vCPUs, 200 GiB RAM, 1.4 TiB SSD
     Sample Kernel (User 0, Head 0): [0.02329263463616371, -0.17037571966648102, 0.08549156039953232]
     Sample Ref    (User 0, Head 0): [0.023292670026421547, -0.1703757345676422, 0.08549157530069351]
 
+    Testing Attention Kernel V6 (GQA + online softmax) Pass: GQA output matched PyTorch reference!
+
 ### `test_benchmark.py`
-Measures the effective Memory Bandwidth (GB/s) and kernel latency (ms) of the engine, comparing TinyServe (V1 & V2) against naive PyTorch implementations. This quantifies the overhead introduced by memory indirection. While the non-contiguous memory access prevents us from beating PyTorch's contiguous baseline in raw latency, this test verifies that the speed remains competitive. This ensures the latency cost is minimal and well worth the tradeoff for the gain in concurrent user capacity.
+Measures the effective Memory Bandwidth (GB/s) and kernel latency (ms) of the engine, comparing TinyServe kernels against naive PyTorch implementations. This quantifies the overhead introduced by memory indirection. While the non-contiguous memory access prevents us from beating PyTorch's contiguous baseline in raw latency, this test verifies that the speed remains competitive. This ensures the latency cost is minimal and well worth the tradeoff for the gain in concurrent user capacity.
 
 #### Results
 A10 (24 GB PCIe) 30vCPUs, 200 GiB RAM, 1.4 TiB SSD
@@ -71,7 +73,7 @@ A10 (24 GB PCIe) 30vCPUs, 200 GiB RAM, 1.4 TiB SSD
 ### `test_max_concurrency.py`
 Stress tests the memory manager by simulating irregular sequence lengths (Zipfian distribution) and incrementally increasing batch size until the GPU hits Out Of Memory (OOM). This demonstrates the reduction in KV Cache Fragmentation, showing exactly how many more concurrent users TinyServe can handle compared to contiguous allocation.
 
-_In this test, attention kernel versions should not have much affect on results, but I am running all kernel versions to make sure shared memory optimizations isn't reducing max concurrency._
+_In this test, attention kernel versions should not have much affect on results, but I am running all kernel versions to make sure shared memory optimizations are not reducing max concurrency._
 
 #### Results
 A10 (24 GB PCIe) 30vCPUs, 200 GiB RAM, 1.4 TiB SSD
