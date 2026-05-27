@@ -22,7 +22,7 @@ To complement PagedAttention, I created a custom scheduler to implement continuo
 This design has some similarities to an OS thread scheduler. Each request is treated as a discrete task with its own saved context (its block table mapping and generation state), allowing the engine to efficiently multiplex sequences at every token generation cycle and keep GPU utilization at its peak.
 
 ## Custom Kernels
-To compute attention across scattered memory pages, standard PyTorch functions no longer work. I wrote custom CUDA attention kernels designed specifically to intake the block table mappings to traverse a non-contiguous KV Cache. The final iteration of my custom kernel implements several hardware-level optimizations of: block level parallelism through shared memory, parallel tree reduction, and vectorized memory access patterns to saturate the memory bus.
+To compute attention across scattered memory pages, standard PyTorch functions no longer work. I wrote custom CUDA attention kernels designed specifically to intake the block table mappings to traverse a non-contiguous KV Cache. The final iteration of my custom kernel adds FlashAttention-style online softmax on top of the earlier optimizations: block-level parallelism through shared memory, parallel tree reduction, and vectorized memory access patterns.
 
 ## Results
 
@@ -30,7 +30,9 @@ By managing memory in fixed-size pages, TinyServe minimizes external fragmentati
 
 Without PagedAttention, standard PyTorch forces you to allocate a massive, contiguous rectangular tensor based on the maximum possible sequence length. This wastes huge amounts of VRAM, since most users only generate short responses, while a few generate large ones.
 
-The results I gathered from test_max_concurrency.py show that by reducing memory waste, TinyServe can handle ~8x more concurrent users than PyTorch's contiguous allocation.
+On the current A10 test run, `tests/test_max_concurrency.py` reached 2500 concurrent users for the best TinyServe kernels versus 300 for the PyTorch baseline, or about `8.3x` higher capacity.
+
+On the decode throughput benchmark, `tests/test_throughput.py` now compares against PyTorch SDPA with separate MHA and GQA baselines. In that run, `attention_v6` was `4.61x` faster than the PyTorch GQA SDPA baseline for the one-token decode workload being measured.
 
 ### Dev Notes
 `pip install .` reads `pyproject.toml` to create a temporary, hidden virtual environment. This forces a full recompile every time.

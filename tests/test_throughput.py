@@ -1,7 +1,14 @@
 import torch
+import torch.nn.functional as F
 import tinyserve_ext
-import time
-import math
+
+
+def calculate_effective_bandwidth_gbps(total_tokens, num_q_heads, num_kv_heads, head_dim, avg_latency_ms, dtype):
+    bytes_per_element = torch.tensor([], dtype=dtype).element_size()
+    read_bytes = (total_tokens * num_kv_heads * head_dim * bytes_per_element) * 2
+    write_bytes = num_q_heads * head_dim * bytes_per_element
+    total_bytes = read_bytes + write_bytes
+    return (total_bytes / 1e9) / (avg_latency_ms / 1000.0)
 
 def run_attention_kernel(
     num_seqs, min_seq_len, max_seq_len, num_heads, head_dim, block_size, 
@@ -42,7 +49,7 @@ def run_attention_kernel(
         )
     torch.cuda.synchronize()
     
-    # Benchmark
+    # Throughput measurement
     start_event = torch.cuda.Event(enable_timing=True)
     end_event = torch.cuda.Event(enable_timing=True)
     
@@ -60,19 +67,88 @@ def run_attention_kernel(
     avg_latency = elapsed_time_ms / iterations
     
     total_tokens = lens.sum().item()
-    # Cost = Read K (tokens) + Read V (tokens) + Write Out (1 token per user)
-    # 4 bytes per float
-    read_bytes = (total_tokens * num_heads * head_dim * 4) * 2 
-    write_bytes = (num_seqs * num_heads * head_dim * 4)
-    total_bytes = read_bytes + write_bytes
-    
-    gb_processed = total_bytes / 1e9
-    bandwidth = gb_processed / (avg_latency / 1000.0)
+    bandwidth = calculate_effective_bandwidth_gbps(
+        total_tokens,
+        num_seqs * num_heads,
+        num_seqs * cache_heads,
+        head_dim,
+        avg_latency,
+        dtype,
+    )
     
     print(f"Latency: {avg_latency:.3f} ms | Effective Bandwidth: {bandwidth:.2f} GB/s")
     return avg_latency
 
-def benchmark():
+def run_sdpa_baseline(
+    name,
+    num_seqs,
+    min_seq_len,
+    max_seq_len,
+    num_q_heads,
+    num_kv_heads,
+    head_dim,
+    device,
+    dtype,
+):
+    print(f"\nRunning: {name}")
+
+    k_contig = torch.randn(num_seqs, num_kv_heads, max_seq_len, head_dim, device=device, dtype=dtype)
+    v_contig = torch.randn(num_seqs, num_kv_heads, max_seq_len, head_dim, device=device, dtype=dtype)
+    q = torch.randn(num_seqs, num_q_heads, head_dim, device=device, dtype=dtype)
+
+    # SDPA still sees a rectangular cache here, so we mask away padded tokens.
+    lens = torch.randint(min_seq_len, max_seq_len + 1, (num_seqs,), device=device)
+    mask = torch.arange(max_seq_len, device=device).expand(num_seqs, max_seq_len) < lens.unsqueeze(1)
+    mask = mask.view(num_seqs, 1, 1, max_seq_len)
+
+    q_expanded = q.unsqueeze(2)
+
+    start_event = torch.cuda.Event(enable_timing=True)
+    end_event = torch.cuda.Event(enable_timing=True)
+    iterations = 100
+
+    for _ in range(10):
+        F.scaled_dot_product_attention(
+            q_expanded,
+            k_contig,
+            v_contig,
+            attn_mask=mask,
+            dropout_p=0.0,
+            is_causal=False,
+            enable_gqa=(num_q_heads != num_kv_heads),
+        )
+    torch.cuda.synchronize()
+
+    start_event.record()
+    for _ in range(iterations):
+        F.scaled_dot_product_attention(
+            q_expanded,
+            k_contig,
+            v_contig,
+            attn_mask=mask,
+            dropout_p=0.0,
+            is_causal=False,
+            enable_gqa=(num_q_heads != num_kv_heads),
+        )
+    end_event.record()
+    torch.cuda.synchronize()
+
+    torch_latency = start_event.elapsed_time(end_event) / iterations
+    total_tokens = lens.sum().item()
+    bandwidth = calculate_effective_bandwidth_gbps(
+        total_tokens,
+        num_seqs * num_q_heads,
+        num_seqs * num_kv_heads,
+        head_dim,
+        torch_latency,
+        dtype,
+    )
+
+    print(f"Latency: {torch_latency:.3f} ms | Effective Bandwidth: {bandwidth:.2f} GB/s")
+    return torch_latency
+
+
+def throughput():
     SEED = 67
     torch.manual_seed(SEED)
     torch.cuda.manual_seed(SEED)
@@ -92,9 +168,9 @@ def benchmark():
     max_num_blocks = total_blocks_needed + 4096 # Buffer
     
     vram_reserved_size = max_num_blocks * block_size * num_heads * head_dim * 4 / 1e9
-    print(f"--- Benchmark Config: Batch={num_seqs}, Context={min_seq_len}-{max_seq_len}, VRAM Reserved: {vram_reserved_size:.2f} GB ---")
+    print(f"--- Throughput Config: Batch={num_seqs}, Context={min_seq_len}-{max_seq_len}, VRAM Reserved: {vram_reserved_size:.2f} GB ---")
 
-    # 1. Measure Kernels
+    # 1. Measure paged attention kernels
     kernels = [
         ("Attention Kernel V1", tinyserve_ext.paged_attention_v1),
         ("Attention Kernel V2", tinyserve_ext.paged_attention_v2),
@@ -102,7 +178,7 @@ def benchmark():
         ("Attention Kernel V4", tinyserve_ext.paged_attention_v4),
     ]
     
-    # V5 uses GQA (4 KV heads instead of 32), needs separate cache
+    # V5 and V6 use GQA (4 KV heads instead of 32), so they need separate caches.
     gqa_kernels = [
         ("Attention Kernel V5", tinyserve_ext.paged_attention_v5),
         ("Attention Kernel V6", tinyserve_ext.paged_attention_v6),
@@ -135,69 +211,40 @@ def benchmark():
             print(f"Failed to run {name}: {e}")
             kernel_latencies[name] = float('inf')
 
-    # 2. Measure PyTorch Baseline
-    print("\nRunning: PyTorch Baseline")
-    # To be mathematically equivalent, we must simulate the masking.
-    # PyTorch allocates a rectangular block [Batch, MaxSeq].
-    # But real PagedAttention only processes valid tokens.
-    
-    k_contig = torch.randn(num_seqs, num_heads, max_seq_len, head_dim, device=device, dtype=dtype)
-    v_contig = torch.randn(num_seqs, num_heads, max_seq_len, head_dim, device=device, dtype=dtype)
-    q = torch.randn(num_seqs, num_heads, head_dim, device=device, dtype=dtype)
-    
-    # Create a mask to ensure PyTorch ignores the "padding" area
-    # This adds slight overhead but is "correct"
-    lens = torch.randint(min_seq_len, max_seq_len + 1, (num_seqs,), device=device)
-    mask = torch.arange(max_seq_len, device=device).expand(num_seqs, max_seq_len) < lens.unsqueeze(1)
-    mask = mask.view(num_seqs, 1, 1, max_seq_len) # [Batch, 1, 1, Seq] for broadcasting
-    
-    q_expanded = q.unsqueeze(2) # [Batch, Heads, 1, Dim]
-    scale = 1.0 / math.sqrt(head_dim)
-    
-    start_event = torch.cuda.Event(enable_timing=True)
-    end_event = torch.cuda.Event(enable_timing=True)
-    iterations = 100
-    
-    # Warmup
-    for _ in range(10):
-        scores = torch.matmul(q_expanded, k_contig.transpose(-1, -2)) * scale
-        # Mask out padding with -inf so softmax ignores them
-        scores = scores.masked_fill(~mask, float('-inf'))
-        probs = torch.softmax(scores, dim=-1)
-        output = torch.matmul(probs, v_contig)
-    torch.cuda.synchronize()
+    torch_mha_latency = run_sdpa_baseline(
+        "PyTorch Baseline (SDPA, MHA)",
+        num_seqs,
+        min_seq_len,
+        max_seq_len,
+        num_heads,
+        num_heads,
+        head_dim,
+        device,
+        dtype,
+    )
+    torch_gqa_latency = run_sdpa_baseline(
+        "PyTorch Baseline (SDPA, GQA)",
+        num_seqs,
+        min_seq_len,
+        max_seq_len,
+        num_heads,
+        4,
+        head_dim,
+        device,
+        dtype,
+    )
 
-    start_event.record()
-    for _ in range(iterations):
-        scores = torch.matmul(q_expanded, k_contig.transpose(-1, -2)) * scale
-        scores = scores.masked_fill(~mask, float('-inf'))
-        probs = torch.softmax(scores, dim=-1)
-        output = torch.matmul(probs, v_contig)
-    end_event.record()
-    torch.cuda.synchronize()
-    
-    torch_latency = start_event.elapsed_time(end_event) / iterations
-    
-    total_tokens = lens.sum().item()
-    read_bytes = (total_tokens * num_heads * head_dim * 4) * 2 
-    write_bytes = (num_seqs * num_heads * head_dim * 4)
-    total_bytes = read_bytes + write_bytes
-    
-    gb_processed = total_bytes / 1e9
-    pytorch_bandwidth = gb_processed / (torch_latency / 1000.0)
-    
-    print(f"Latency: {torch_latency:.3f} ms | Effective Bandwidth: {pytorch_bandwidth:.2f} GB/s")
-    
-    print("\n--- Results ---")
+    print("\n--- Results vs PyTorch SDPA ---")
     for name, latency in kernel_latencies.items():
         if latency == float('inf'):
             print(f"{name}: Failed")
         else:
-            speedup = torch_latency / latency
+            baseline_latency = torch_gqa_latency if name in {"Attention Kernel V5", "Attention Kernel V6"} else torch_mha_latency
+            speedup = baseline_latency / latency
             if speedup > 1.0:
                 print(f"{name}: {speedup:.2f}x faster than PyTorch")
             else:
                 print(f"{name}: {1.0/speedup:.2f}x slower than PyTorch")
 
 if __name__ == "__main__":
-    benchmark()
+    throughput()

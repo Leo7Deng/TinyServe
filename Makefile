@@ -15,4 +15,4 @@ clean:
 	find . -name "*.so" -delete
 
 test:
-	python tests/test_benchmark.py
+	python tests/test_throughput.py

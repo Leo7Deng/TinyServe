@@ -162,10 +162,10 @@ def test_attention():
         except Exception as e:
             print(f"CRASH: {e}")
 
-    # --- GQA Test for V5 ---
-    # V5 uses separate KV head count (4 KV heads for 32 Q heads)
-    # We need a separate cache, reference, and block table for this
-    print("\n\n--- GQA Attention Test for V5 (32 Q heads, 4 KV heads) ---")
+    # --- GQA Test for V5/V6 ---
+    # V5 and V6 use a separate KV head count (4 KV heads for 32 Q heads).
+    # We need a separate cache, reference, and block table for this.
+    print("\n\n--- GQA Attention Test for V5/V6 (32 Q heads, 4 KV heads) ---")
     
     num_kv_heads = 4
     num_q_per_kv = num_heads // num_kv_heads  # 8

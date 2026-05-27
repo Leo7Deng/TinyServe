@@ -1,12 +1,20 @@
 import torch
 import tinyserve_ext
-from tinyserve.memory_manager import KVCache, Sequence
+from tinyserve.memory_manager import KVCache
+from tinyserve.scheduler import Sequence
 
 def test_allocation_logic():
     block_size = 4
     # Create small cache with 4 blocks total (capacity would be 16 tokens)
-    cache = KVCache(num_blocks=4, block_size=block_size, num_heads=2, head_dim=4, device="cuda")
-    user = Sequence(seq_id=0)
+    cache = KVCache(
+        num_blocks=4,
+        block_size=block_size,
+        num_layers=1,
+        num_heads=2,
+        head_dim=4,
+        device="cuda",
+    )
+    user = Sequence(seq_id=0, prompt="", prompt_token_ids=[], block_size=block_size)
     
     # 1. Test Prefill Allocation
     # Request 5 tokens. Should need 2 blocks (size 4 + size 4)
@@ -48,10 +56,10 @@ def test_kernel_write():
     head_dim = 4
     
     cache = KVCache(num_blocks=4, block_size=block_size, 
-                    num_heads=num_heads, head_dim=head_dim, device=device)
+                    num_layers=1, num_heads=num_heads, head_dim=head_dim, device=device)
     
     # User has 3 tokens. They sit in block 0. We are generating the 4th token.
-    user = Sequence(seq_id=0)
+    user = Sequence(seq_id=0, prompt="", prompt_token_ids=[], block_size=block_size)
     cache.allocate_for_prefill(user, num_prompt_tokens=3)
     
     # 1. Prepare slot for 4th token
@@ -70,14 +78,14 @@ def test_kernel_write():
     # this adds the k, v, to slot_mapping location
     tinyserve_ext.reshape_and_cache(
         k, v,
-        cache.k_cache, cache.v_cache,
+        cache.k_cache[0], cache.v_cache[0],
         slot_mapping
     )
     
     # 5. Check GPU Memory
     # Look at Block 0 in the cache
     # Slot 3 should be 9.0. Slots 0-2 should be 0.0
-    block_0 = cache.k_cache[user.block_table[0]]
+    block_0 = cache.k_cache[0][user.block_table[0]]
     print(f"   - Block 0 Content (Last row ({slot_mapping}) row should be 9s):")
     print(block_0[:, 0, :]) # Print first head, this would show all time steps for block 0, head 0
     
