@@ -157,6 +157,7 @@ def main():
         ("Attention Kernel V4", tinyserve_ext.paged_attention_v4),
         ("Attention Kernel V5", tinyserve_ext.paged_attention_v5),
         ("Attention Kernel V6", tinyserve_ext.paged_attention_v6),
+        ("Attention Kernel V7", tinyserve_ext.paged_attention_v7),
     ]
     
     paged_results = run_paged_test(batch_sizes, min_seq_len, max_seq_len, num_heads, head_dim, block_size, device, dtype, kernels)

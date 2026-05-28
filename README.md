@@ -32,7 +32,7 @@ Without PagedAttention, standard PyTorch forces you to allocate a massive, conti
 
 On the current A10 test run, `tests/test_max_concurrency.py` reached 2500 concurrent users for the best TinyServe kernels versus 300 for the PyTorch baseline, or about `8.3x` higher capacity.
 
-On the decode throughput benchmark, `tests/test_throughput.py` now compares against PyTorch SDPA with separate MHA and GQA baselines. In that run, `attention_v6` was `4.61x` faster than the PyTorch GQA SDPA baseline for the one-token decode workload being measured.
+On the decode throughput benchmark, `tests/test_throughput.py` now compares against PyTorch SDPA with separate MHA and GQA baselines. In that run, `attention_v7` was `10.31x` faster than the PyTorch GQA SDPA baseline for the one-token decode workload being measured.
 
 ### Dev Notes
 `pip install .` reads `pyproject.toml` to create a temporary, hidden virtual environment. This forces a full recompile every time.

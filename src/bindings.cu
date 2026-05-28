@@ -67,6 +67,15 @@ void launch_paged_attention_v6(
     torch::Tensor& context_lens
 );
 
+void launch_paged_attention_v7(
+    torch::Tensor& out,
+    torch::Tensor& query,
+    torch::Tensor& key_cache,
+    torch::Tensor& value_cache,
+    torch::Tensor& block_tables,
+    torch::Tensor& context_lens
+);
+
 
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
     m.doc() = "TinyServe Low-Level Bindings";
@@ -76,5 +85,6 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
     m.def("paged_attention_v4", &launch_paged_attention_v4);
     m.def("paged_attention_v5", &launch_paged_attention_v5);
     m.def("paged_attention_v6", &launch_paged_attention_v6);
+    m.def("paged_attention_v7", &launch_paged_attention_v7);
     m.def("reshape_and_cache", &launch_reshape_and_cache);
 }

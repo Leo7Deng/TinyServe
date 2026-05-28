@@ -27,7 +27,7 @@ A10 (24 GB PCIe) 30vCPUs, 200 GiB RAM, 1.4 TiB SSD
     Sample Ref    (User 0, Head 0): [0.28064653277397156, 0.09345296770334244, -0.1507822722196579]
 
 
-    --- GQA Attention Test for V5/V6 (32 Q heads, 4 KV heads) ---
+    --- GQA Attention Test for V5/V6/V7 (32 Q heads, 4 KV heads) ---
 
     Computing PyTorch GQA Reference
 
@@ -39,8 +39,12 @@ A10 (24 GB PCIe) 30vCPUs, 200 GiB RAM, 1.4 TiB SSD
     Sample Kernel (User 0, Head 0): [0.023292647674679756, -0.17037570476531982, 0.08549156785011292]
     Sample Ref    (User 0, Head 0): [0.023292670026421547, -0.1703757345676422, 0.08549157530069351]
 
+    Testing Attention Kernel V7 (GQA + bank-conflict optimized reduction) Pass: GQA output matched PyTorch reference!
+    Sample Kernel (User 0, Head 0): [0.023292647674679756, -0.17037570476531982, 0.08549156785011292]
+    Sample Ref    (User 0, Head 0): [0.023292670026421547, -0.1703757345676422, 0.08549157530069351]
+
 ### `test_throughput.py`
-Measures the effective Memory Bandwidth (GB/s) and kernel latency (ms) of the engine, comparing TinyServe kernels against PyTorch SDPA baselines. This quantifies the overhead introduced by memory indirection while keeping the reference path closer to production inference. The test uses separate MHA and GQA baselines so `v1-v4` and `v5-v6` are compared against matching head layouts.
+Measures the effective Memory Bandwidth (GB/s) and kernel latency (ms) of the engine, comparing TinyServe kernels against PyTorch SDPA baselines. This quantifies the overhead introduced by memory indirection while keeping the reference path closer to production inference. The test uses separate MHA and GQA baselines so `v1-v4` and `v5-v7` are compared against matching head layouts.
 
 #### Results
 A10 (24 GB PCIe) 30vCPUs, 200 GiB RAM, 1.4 TiB SSD
@@ -48,36 +52,40 @@ A10 (24 GB PCIe) 30vCPUs, 200 GiB RAM, 1.4 TiB SSD
     --- Throughput Config: Batch=64, Context=1024-4096, VRAM Reserved: 2.68 GB ---
 
     Running Attention Kernel V1
-    Latency: 125.457 ms | Effective Bandwidth: 1446.18 GB/s
+    Latency: 126.431 ms | Effective Bandwidth: 1435.04 GB/s
 
     Running Attention Kernel V2
-    Latency: 53.235 ms | Effective Bandwidth: 3338.47 GB/s
+    Latency: 52.684 ms | Effective Bandwidth: 3373.36 GB/s
 
     Running Attention Kernel V3
-    Latency: 52.233 ms | Effective Bandwidth: 3265.28 GB/s
+    Latency: 51.581 ms | Effective Bandwidth: 3306.59 GB/s
 
     Running Attention Kernel V4
-    Latency: 26.558 ms | Effective Bandwidth: 6380.59 GB/s
+    Latency: 26.552 ms | Effective Bandwidth: 6382.10 GB/s
 
     Running Attention Kernel V5
-    Latency: 18.555 ms | Effective Bandwidth: 1107.75 GB/s
+    Latency: 18.634 ms | Effective Bandwidth: 1103.04 GB/s
 
     Running Attention Kernel V6
-    Latency: 6.219 ms | Effective Bandwidth: 3345.65 GB/s
+    Latency: 6.254 ms | Effective Bandwidth: 3327.38 GB/s
+
+    Running Attention Kernel V7
+    Latency: 2.783 ms | Effective Bandwidth: 8334.72 GB/s
 
     Running: PyTorch Baseline (SDPA, MHA)
-    Latency: 20.793 ms | Effective Bandwidth: 8406.07 GB/s
+    Latency: 20.932 ms | Effective Bandwidth: 8410.63 GB/s
 
     Running: PyTorch Baseline (SDPA, GQA)
-    Latency: 28.690 ms | Effective Bandwidth: 756.19 GB/s
+    Latency: 28.688 ms | Effective Bandwidth: 706.32 GB/s
 
     --- Results vs PyTorch SDPA ---
-    Attention Kernel V1: 6.03x slower than PyTorch
-    Attention Kernel V2: 2.56x slower than PyTorch
-    Attention Kernel V3: 2.51x slower than PyTorch
-    Attention Kernel V4: 1.28x slower than PyTorch
-    Attention Kernel V5: 1.55x faster than PyTorch
-    Attention Kernel V6: 4.61x faster than PyTorch
+    Attention Kernel V1: 6.04x slower than PyTorch
+    Attention Kernel V2: 2.52x slower than PyTorch
+    Attention Kernel V3: 2.46x slower than PyTorch
+    Attention Kernel V4: 1.27x slower than PyTorch
+    Attention Kernel V5: 1.54x faster than PyTorch
+    Attention Kernel V6: 4.59x faster than PyTorch
+    Attention Kernel V7: 10.31x faster than PyTorch
 
 ### `test_max_concurrency.py`
 Stress tests the memory manager by simulating irregular sequence lengths (Zipfian distribution) and incrementally increasing batch size until the GPU hits Out Of Memory (OOM). This demonstrates the reduction in KV Cache Fragmentation, showing exactly how many more concurrent users TinyServe can handle compared to contiguous allocation.

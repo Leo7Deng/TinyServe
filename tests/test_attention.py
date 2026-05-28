@@ -162,10 +162,10 @@ def test_attention():
         except Exception as e:
             print(f"CRASH: {e}")
 
-    # --- GQA Test for V5/V6 ---
-    # V5 and V6 use a separate KV head count (4 KV heads for 32 Q heads).
+    # --- GQA Test for V5/V6/V7 ---
+    # V5, V6, and V7 use a separate KV head count (4 KV heads for 32 Q heads).
     # We need a separate cache, reference, and block table for this.
-    print("\n\n--- GQA Attention Test for V5/V6 (32 Q heads, 4 KV heads) ---")
+    print("\n\n--- GQA Attention Test for V5/V6/V7 (32 Q heads, 4 KV heads) ---")
     
     num_kv_heads = 4
     num_q_per_kv = num_heads // num_kv_heads  # 8
@@ -242,6 +242,7 @@ def test_attention():
     gqa_kernels = [
         ("Attention Kernel V5 (GQA)", tinyserve_ext.paged_attention_v5),
         ("Attention Kernel V6 (GQA + online softmax)", tinyserve_ext.paged_attention_v6),
+        ("Attention Kernel V7 (GQA + bank-conflict optimized reduction)", tinyserve_ext.paged_attention_v7),
     ]
 
     for name, kernel_func in gqa_kernels:

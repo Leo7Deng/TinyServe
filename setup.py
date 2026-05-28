@@ -31,11 +31,12 @@ setup(
                 'src/kernels/attention_v4.cu',
                 'src/kernels/attention_v5.cu',
                 'src/kernels/attention_v6.cu',
+                'src/kernels/attention_v7.cu',
             ],
             include_dirs=global_includes,
             extra_compile_args={
                 'cxx': ['-O3'], 
-                'nvcc': ['-O3']
+                'nvcc': ['-O3', '-lineinfo']
             }
         )
     ],

@@ -1,7 +1,7 @@
 .PHONY: install build clean test
 
 config:
-	git config user.name "Leo7Deng"
+	git config user.name "Leo Deng"
 	git config user.email "leo7deng"
 
 install:

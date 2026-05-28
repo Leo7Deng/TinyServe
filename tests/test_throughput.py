@@ -178,10 +178,11 @@ def throughput():
         ("Attention Kernel V4", tinyserve_ext.paged_attention_v4),
     ]
     
-    # V5 and V6 use GQA (4 KV heads instead of 32), so they need separate caches.
+    # V5, V6, and V7 use GQA (4 KV heads instead of 32), so they need separate caches.
     gqa_kernels = [
         ("Attention Kernel V5", tinyserve_ext.paged_attention_v5),
         ("Attention Kernel V6", tinyserve_ext.paged_attention_v6),
+        ("Attention Kernel V7", tinyserve_ext.paged_attention_v7),
     ]
     
     kernel_latencies = {}
@@ -239,7 +240,7 @@ def throughput():
         if latency == float('inf'):
             print(f"{name}: Failed")
         else:
-            baseline_latency = torch_gqa_latency if name in {"Attention Kernel V5", "Attention Kernel V6"} else torch_mha_latency
+            baseline_latency = torch_gqa_latency if name in {"Attention Kernel V5", "Attention Kernel V6", "Attention Kernel V7"} else torch_mha_latency
             speedup = baseline_latency / latency
             if speedup > 1.0:
                 print(f"{name}: {speedup:.2f}x faster than PyTorch")
